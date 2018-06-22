@@ -22,6 +22,7 @@
 #include <libdevcore/CommonIO.h>
 #include <libethcore/CommonJS.h>
 #include <libethcore/KeyManager.h>
+#include <libethereum/ClientTest.h>
 #include <libweb3jsonrpc/AccountHolder.h>
 #include <libweb3jsonrpc/AdminEth.h>
 #include <libweb3jsonrpc/AdminNet.h>
@@ -29,6 +30,7 @@
 #include <libweb3jsonrpc/ModularServer.h>
 #include <libweb3jsonrpc/Net.h>
 #include <libweb3jsonrpc/Web3.h>
+#include <libweb3jsonrpc/Test.h>
 #include <libwebthree/WebThree.h>
 #include <test/tools/libtesteth/TestHelper.h>
 #include <test/tools/libtesteth/TestOutputHelper.h>
@@ -82,7 +84,7 @@ struct JsonRpcFixture : public TestOutputHelperFixture
         // TODO: better make it use ethemeral in-memory databases
         chainParams.extraData = h256::random().asBytes();
         web3.reset(new WebThreeDirect(
-            "eth tests", "", "", chainParams, WithExisting::Kill, {"eth"}, nprefs));
+            "eth tests", "", "", chainParams, WithExisting::Kill, {"eth"}, nprefs, bytesConstRef(), true));
 
         web3->setIdealPeerCount(5);
 
@@ -90,7 +92,7 @@ struct JsonRpcFixture : public TestOutputHelperFixture
         web3->ethereum()->setAuthor(coinbase.address());
 
         using FullServer = ModularServer<rpc::EthFace, rpc::NetFace, rpc::Web3Face,
-            rpc::AdminEthFace, rpc::AdminNetFace>;
+            rpc::AdminEthFace, rpc::AdminNetFace, rpc::TestFace>;
 
         accountHolder.reset(new FixedAccountHolder([&]() { return web3->ethereum(); }, {}));
         sessionManager.reset(new rpc::SessionManager());
@@ -103,7 +105,7 @@ struct JsonRpcFixture : public TestOutputHelperFixture
         rpcServer.reset(
             new FullServer(ethFace, new rpc::Net(*web3), new rpc::Web3(web3->clientVersion()),
                 new rpc::AdminEth(*web3->ethereum(), *gasPricer, keyManager, *sessionManager.get()),
-                new rpc::AdminNet(*web3, *sessionManager)));
+                new rpc::AdminNet(*web3, *sessionManager), new rpc::Test(*web3->ethereum())));
         auto ipcServer = new TestIpcServer;
         rpcServer->addConnector(ipcServer);
         ipcServer->StartListening();
@@ -370,6 +372,83 @@ BOOST_AUTO_TEST_CASE(sha3)
     string result = rpcClient->web3_sha3(hexValue);
     BOOST_CHECK_EQUAL(toJS(expected), result);
     BOOST_CHECK_EQUAL("0xc6888fa159d67f77c2f3d7a402e199802766bd7e8d4d1ecd2274fc920265d56a", result);
+}
+
+
+static std::string const c_genesisConfigString = R"(
+    {
+        "sealEngine": "NoProof",
+        "params": {
+            "accountStartNonce": "0x00",
+            "maximumExtraDataSize": "0x1000000",
+            "blockReward": "0x",
+            "allowFutureBlocks": true,
+            "homesteadForkBlock": "0x00",
+            "EIP150ForkBlock": "0x00",
+            "EIP158ForkBlock": "0x00"
+        },
+        "genesis": {
+            "author" : "0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba",
+            "difficulty" : "0x20000",
+            "gasLimit" : "0x0f4240",
+            "nonce" : "0x00",
+            "extraData" : "0x00",
+            "timestamp" : "0x00",
+            "mixHash" : "0x00"
+        },
+        "accounts": {
+            "0000000000000000000000000000000000000001": { "precompiled": { "name": "ecrecover", "linear": { "base": 3000, "word": 0 } } },
+            "0000000000000000000000000000000000000002": { "precompiled": { "name": "sha256", "linear": { "base": 60, "word": 12 } } },
+            "0000000000000000000000000000000000000003": { "precompiled": { "name": "ripemd160", "linear": { "base": 600, "word": 120 } } },
+            "0000000000000000000000000000000000000004": { "precompiled": { "name": "identity", "linear": { "base": 15, "word": 3 } } },
+            "0x095e7baea6a6c7c4c2dfeb977efac326af552d87" : {
+               "balance" : "0x0de0b6b3a7640000",
+                "code" : "0x6001600101600055",
+                "nonce" : "0x00",
+                "storage" : {
+                }
+            },
+            "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b" : {
+                "balance" : "0x0de0b6b3a7640000",
+                "code" : "0x",
+                "nonce" : "0x00",
+                "storage" : {
+                }
+            }
+        }
+    }
+    )";
+
+BOOST_AUTO_TEST_CASE(test_setChainParams)
+{
+    Json::Value ret;
+    Json::Reader().parse(c_genesisConfigString, ret);
+    rpcClient->test_setChainParams(ret);
+}
+
+BOOST_AUTO_TEST_CASE(test_importRawBlock)
+{
+    Json::Value ret;
+    Json::Reader().parse(c_genesisConfigString, ret);
+    rpcClient->test_setChainParams(ret);
+    string blockHash = rpcClient->test_importRawBlock(
+        "0xf90279f9020ea0c92211c9cd49036c37568feedb8e518a24a77e9f6ca959931a19dcf186a8e1e6a01dcc4de8"
+        "dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347942adc25665018aa1fe0e6bc666dac8fc2"
+        "697ff9baa0b15e96a28489e2cf9e6458dd731ba124fe6f472c11417227e934a3f40af1bbfda093ca2a18d52e7c"
+        "1846f7b104e2fc1e5fdc71ebe38187248f9437d39e74f43aaba05a0b89fb1e5f44d02b5900c39683a1796c591b"
+        "2c3b08e3b1bfc94f5aa4f3c44db901000000000000000000000000000000000000000000000000000000000000"
+        "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "00008304000001830f460f82a0348203e897d68094312e342e302b2b62383163726c696e7578676e75a0d826d8"
+        "35fce05e6a7160f4021f494cd97fb89598b5ec69aba06e45a15f2a74c588f5b138c8883032f3f865f863800183"
+        "061a8094095e7baea6a6c7c4c2dfeb977efac326af552d87830186a0801ca0e94818d1f3b0c69eb37720145a5e"
+        "ad7fbf6f8d80139dd53953b4a782301050a3a01fcf46908c01576715411be0857e30027d6be3250a3653f049b3"
+        "ff8d74d2540cc0");
+    BOOST_CHECK_EQUAL(
+        blockHash, "0xee0fb934a9c1c61b4580d049e1ffd0afb6d26da77105165d3a77a51d5c8a551c");
 }
 
 BOOST_AUTO_TEST_SUITE_END()
