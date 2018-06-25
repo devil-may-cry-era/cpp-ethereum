@@ -341,7 +341,7 @@ void BlockChainSync::requestBlocks(std::shared_ptr<EthereumPeer> _peer)
             m_lastImportedBlock = start;
             m_lastImportedBlockHash = host().chain().numberHash(start);
 
-            if (start <= m_chainStartBlock + 1)
+            if (start <= m_chainStartBlock)
                 m_haveCommonHeader = true; //reached chain start
         }
         if (m_haveCommonHeader)
